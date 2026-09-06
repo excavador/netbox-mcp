@@ -1,4 +1,4 @@
-module github.com/opwerm/netbox-mcp
+module github.com/excavador/netbox-mcp
 
 go 1.27.0
 

@@ -1,5 +1,5 @@
 # Image via ko (no Dockerfile), chart pushed separately by helmctl in the
-# release workflow. Both land in GHCR under opwerm.
+# release workflow. Both land in GHCR under excavador.
 version: 2
 project_name: netbox-mcp
 
@@ -32,7 +32,7 @@ kos:
     labels:
       org.opencontainers.image.title: netbox-mcp
       org.opencontainers.image.version: "{{ .Version }}"
-      org.opencontainers.image.source: https://github.com/opwerm/netbox-mcp
+      org.opencontainers.image.source: https://github.com/excavador/netbox-mcp
       org.opencontainers.image.licenses: MIT
 
 archives:
@@ -54,5 +54,5 @@ changelog:
 release:
   prerelease: auto
   footer: |
-    Image: `ghcr.io/opwerm/netbox-mcp:{{ .Version }}`
-    Chart: `oci://ghcr.io/opwerm/charts/netbox-mcp:{{ .Version }}`
+    Image: `ghcr.io/excavador/netbox-mcp:{{ .Version }}`
+    Chart: `oci://ghcr.io/excavador/charts/netbox-mcp:{{ .Version }}`

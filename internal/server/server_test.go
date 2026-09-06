@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/opwerm/netbox-mcp/internal/netbox"
+	"github.com/excavador/netbox-mcp/internal/netbox"
 )
 
 type capture struct {

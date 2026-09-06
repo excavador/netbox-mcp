@@ -25,8 +25,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/urfave/cli/v3"
 
-	"github.com/opwerm/netbox-mcp/internal/netbox"
-	"github.com/opwerm/netbox-mcp/internal/server"
+	"github.com/excavador/netbox-mcp/internal/netbox"
+	"github.com/excavador/netbox-mcp/internal/server"
 )
 
 // version is overridden at build time.

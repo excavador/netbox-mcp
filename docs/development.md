@@ -65,7 +65,7 @@ multi-arch `amd64` + `arm64`) and the chart via helmctl.
 `charts/netbox-mcp/Chart.yaml` -- the workflow overrides it. The file only
 governs local `helm template`.
 
-**Tag 1.x, never 0.x.** `opwerm/netbox-mcp-chart` publishes 0.x to the same OCI
+**Tag 1.x, never 0.x.** `excavador/netbox-mcp-chart` publishes 0.x to the same OCI
 path, packaging the upstream read-only Python server, and it is kept as a
 fallback. A v0.x tag here would overwrite one of its charts.
 

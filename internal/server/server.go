@@ -32,7 +32,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/opwerm/netbox-mcp/internal/netbox"
+	"github.com/excavador/netbox-mcp/internal/netbox"
 )
 
 // defaultLimit keeps a careless list call from returning a whole DCIM estate.

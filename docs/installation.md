@@ -24,7 +24,7 @@ for why. Grant it what the work needs and no more.
 ## 1. As a local binary
 
 Download a release from the
-[Releases page](https://github.com/opwerm/netbox-mcp/releases), or build it:
+[Releases page](https://github.com/excavador/netbox-mcp/releases), or build it:
 
     go build ./cmd/netbox-mcp
 
@@ -45,14 +45,14 @@ Then point a client at it — see [clients](clients.md).
     docker run --rm -i \
       -e NETBOX_URL=https://netbox.example.com \
       -e NETBOX_TOKEN=... \
-      ghcr.io/opwerm/netbox-mcp:0.1.0
+      ghcr.io/excavador/netbox-mcp:0.1.0
 
 Multi-arch (`linux/amd64`, `linux/arm64`), built with ko from a distroless
 static base: no shell, no package manager, runs as non-root.
 
 ## 3. On Kubernetes, with the Helm chart
 
-    helm install netbox-mcp oci://ghcr.io/opwerm/charts/netbox-mcp \
+    helm install netbox-mcp oci://ghcr.io/excavador/charts/netbox-mcp \
       --version 1.0.0 \
       --set netbox.url=http://netbox \
       --set netbox.existingSecret=netbox-mcp
@@ -90,7 +90,7 @@ spec:
 | `netbox.url` | — | **Required.** Base URL **without** `/api`; the server appends it. The chart refuses a URL ending in `/api`. |
 | `netbox.existingSecret` | — | **Required.** Secret holding the API token. |
 | `netbox.existingSecretTokenKey` | `token` | Key within that Secret. |
-| `image.registry` / `image.repository` | `ghcr.io` / `opwerm/netbox-mcp` | |
+| `image.registry` / `image.repository` | `ghcr.io` / `excavador/netbox-mcp` | |
 | `image.tag` | `""` | Empty means the chart's `appVersion`. Pin it to upgrade deliberately. |
 | `replicaCount` | `1` | The server is stateless, so more than one is safe. |
 | `service.port` | `8080` | Also the container's listen port. |

@@ -5,8 +5,8 @@
 DCIM and IPAM: ask what is in a rack, then record the switch you just cabled.
 
 ```
-ghcr.io/opwerm/netbox-mcp              image, multi-arch amd64 + arm64
-oci://ghcr.io/opwerm/charts/netbox-mcp chart
+ghcr.io/excavador/netbox-mcp              image, multi-arch amd64 + arm64
+oci://ghcr.io/excavador/charts/netbox-mcp chart
 ```
 
 ## Quick start
