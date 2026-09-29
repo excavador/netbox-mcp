@@ -6,15 +6,15 @@ call is one HTTP request, so the process can be restarted or scaled freely.
 
 ## The request path
 
-Running in a cluster behind a gateway:
-
-    Claude Code
-      │  MCP over streamable HTTP, Authorization: Bearer <OIDC access token>
-      ▼
-    Envoy Gateway ── SecurityPolicy: validate JWT, check audience
-      │  forwards only if the token is for THIS server's audience
+    Claude Code (or any MCP client)
+      │  presents client_id = an HTTPS URL to its own Client ID Metadata
+      │  Document (CIMD) -- no pre-registration, no DCR
+      │  gets back an access token: iss=access-roster, aud=this resource
+      │  MCP over streamable HTTP, Authorization: Bearer <access token>
       ▼
     netbox-mcp  (TRANSPORT=http, listening on :8080/mcp)
+      │  validates the token itself: signature against access-roster's
+      │  JWKS, iss, and aud == RESOURCE_URL (RFC 8707) -- see auth.go
       │  Authorization: Token <NetBox API token>
       ▼
     NetBox  /api/...
@@ -22,29 +22,36 @@ Running in a cluster behind a gateway:
 Two different credentials, and conflating them is the mistake this design
 exists to prevent:
 
-- The **caller's** token is an OIDC access token identifying a person. The
-  gateway validates it; `netbox-mcp` never reads it.
+- The **caller's** token is an access-roster access token identifying a
+  person, bound to this server's own resource URL as its audience.
+  `netbox-mcp` verifies it itself, in-process — see
+  [design/cimd-auth.md](design/cimd-auth.md) for why authentication moved
+  from a perimeter gateway into the binary.
 - The **server's** token is a NetBox API token, held in a Kubernetes Secret and
   read once at startup. NetBox accepts nothing else — note the scheme is
   `Token`, not `Bearer`.
 
-### The server authenticates nothing
+### The server validates its own bearer tokens
 
-Deliberate, and the single most important thing to know before deploying it.
-There is no allowlist, no shared secret, no value in the chart that turns
-authentication on, because there is none to turn on.
+`ISSUER_URL` and `RESOURCE_URL` are both required for the http transport --
+there is no gateway fallback. The server verifies a request's bearer token
+against access-roster's own JWKS, requires `aud` to equal `RESOURCE_URL`
+exactly (RFC 8707), and serves its own OAuth 2.0 Protected Resource Metadata
+at `/.well-known/oauth-protected-resource` (RFC 9728) so a compliant client
+can discover access-roster without being told out of band. See
+[design/cimd-auth.md](design/cimd-auth.md).
 
-The gateway is the only gate. Exposed directly to a network, the process is
-NetBox with write access, to anyone who can reach it.
-
-The upside is that authorisation lives in one place that already does it
-properly, rather than in a second, weaker implementation here.
+Exposed with no `ISSUER_URL`/`RESOURCE_URL` set, the process refuses to
+start the http transport at all -- there is no way to accidentally run it
+unauthenticated.
 
 ### The NetBox token is the real limit
 
-Behind the gateway every caller is identical: one token, so NetBox attributes
-every change to it rather than to the person who asked. The changelog records
-*what* changed and *when*, but not *who* beyond that token's user.
+Every caller access-roster admits still shares one NetBox token as far as
+NetBox itself is concerned, so NetBox attributes every change to it rather
+than to the person who asked. The changelog records *what* changed and
+*when*, but not *who* beyond that token's user -- access-roster identifies
+*who may reach this server*, not who NetBox believes made a given change.
 
 That token's NetBox permissions are therefore the meaningful boundary, and
 they are worth setting deliberately. A read-only token makes every write tool

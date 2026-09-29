@@ -55,7 +55,9 @@ static base: no shell, no package manager, runs as non-root.
     helm install netbox-mcp oci://ghcr.io/excavador/charts/netbox-mcp \
       --version 1.0.0 \
       --set netbox.url=http://netbox \
-      --set netbox.existingSecret=netbox-mcp
+      --set netbox.existingSecret=netbox-mcp \
+      --set auth.issuerUrl=https://access.example \
+      --set auth.resourceUrl=https://mcp.example/netbox
 
 The chart always runs the HTTP transport; stdio in a pod with no attached
 client exits immediately.
@@ -90,6 +92,8 @@ spec:
 | `netbox.url` | — | **Required.** Base URL **without** `/api`; the server appends it. The chart refuses a URL ending in `/api`. |
 | `netbox.existingSecret` | — | **Required.** Secret holding the API token. |
 | `netbox.existingSecretTokenKey` | `token` | Key within that Secret. |
+| `auth.issuerUrl` | — | **Required.** access-roster's own URL, exactly as it appears in a token's `iss`. |
+| `auth.resourceUrl` | — | **Required.** This server's own EXTERNAL URL — the RFC 8707 audience access-roster mints tokens for. Must match this resource's id in access-roster's policy, byte for byte. |
 | `image.registry` / `image.repository` | `ghcr.io` / `excavador/netbox-mcp` | |
 | `image.tag` | `""` | Empty means the chart's `appVersion`. Pin it to upgrade deliberately. |
 | `replicaCount` | `1` | The server is stateless, so more than one is safe. |
@@ -101,13 +105,21 @@ spec:
 The schema sets `additionalProperties: false`, so a typo like `replicaCounts`
 fails to render instead of being silently ignored.
 
-### The server has no authentication
+### Authentication
 
-The chart offers nothing that turns authentication on, because the server has
-none. It expects a gateway in front of it that validates a token.
+The server validates every request itself against access-roster: a bearer
+token, checked against `auth.issuerUrl`'s JWKS, with `aud` required to equal
+`auth.resourceUrl` exactly (RFC 8707). Both values are required — there is
+no way to render the chart, or start the http transport directly, without
+them, and no gateway fallback any more. See
+[design/cimd-auth.md](design/cimd-auth.md) for the full design and the
+exact access-roster policy this expects.
 
-A `ClusterIP` Service and no Ingress or HTTPRoute is the safe default the chart
-ships. **Do not expose it** until something in front is checking credentials.
+A `ClusterIP` Service and no Ingress or HTTPRoute is the safe default the
+chart ships regardless — routing and TLS termination are still a
+deployment's own concern, because those are site-specific. What changed is
+that whatever fronts the Service no longer needs to be the thing that
+decides who may call it.
 
 ### Health
 
@@ -123,6 +135,21 @@ of service for something restarting cannot fix.
 | `--netbox-token` | `NETBOX_TOKEN` | — | **Required.** NetBox API token. |
 | `--transport` | `TRANSPORT` | `stdio` | `stdio` or `http`. |
 | `--addr` | `ADDR` | `0.0.0.0:8080` | HTTP transport only. |
+| `--issuer-url` | `ISSUER_URL` | — | **Required for `http`.** access-roster's own URL. |
+| `--resource-url` | `RESOURCE_URL` | — | **Required for `http`.** This server's own external URL (RFC 8707 audience). |
+
+## Verifying auth is wired up
+
+Without a token, the MCP endpoint refuses:
+
+    curl -s -i http://localhost:8080/mcp
+
+answers `401` with a `WWW-Authenticate: Bearer resource_metadata="..."`
+header naming this server's own protected-resource metadata:
+
+    curl -s http://localhost:8080/.well-known/oauth-protected-resource
+
+answers `{"resource": "<RESOURCE_URL>", "authorization_servers": ["<ISSUER_URL>"], ...}`.
 
 ## When startup fails
 
