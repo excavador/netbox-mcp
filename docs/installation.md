@@ -150,7 +150,7 @@ answers `401` with a
 `WWW-Authenticate: Bearer resource_metadata="...", scope="openid"` header
 naming this server's own protected-resource metadata:
 
-    curl -s http://localhost:8080/.well-known/oauth-protected-resource
+    curl -s http://localhost:8080/.well-known/oauth-protected-resource/<path of RESOURCE_URL>
 
 answers `{"resource": "<RESOURCE_URL>", "authorization_servers":
 ["<ISSUER_URL>"], "scopes_supported": ["<SCOPE>"], ...}`.
