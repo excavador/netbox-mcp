@@ -1,0 +1,80 @@
+{{- if .Values.httpRoute.enabled }}
+{{- $r := .Values.httpRoute }}
+{{- $path := include "netbox-mcp.resourcePath" . }}
+{{- /*
+One HTTPRoute, shipped WITH the Service on purpose: a route whose backend
+arrives later reads BackendNotFound and degrades whatever owns it.
+
+The gateway rewrites nothing for the resource: the proxy maps the resource
+path to the server's /mcp itself, and answers 404 to any path outside it. Three
+rules, all to the Service (the proxy's port):
+
+  PathPrefix <path>                                      the MCP endpoint
+  Exact /.well-known/oauth-protected-resource<path>      the PRM, RFC 9728
+  Exact <path>/.well-known/oauth-protected-resource      an alias some clients
+                                                         use, rewritten to the
+                                                         PRM above (the proxy
+                                                         would 401 it as a path
+                                                         inside the resource)
+
+No `timeouts` are set: the gateway's own default applies.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ default (include "netbox-mcp.fullname" .) $r.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netbox-mcp.labels" . | nindent 4 }}
+    {{- with $r.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $r.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- toYaml $r.parentRefs | nindent 4 }}
+  {{- with $r.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ $path }}
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ include "netbox-mcp.fullname" . }}
+          port: {{ .Values.service.port }}
+          weight: 1
+    - matches:
+        - path:
+            type: Exact
+            value: /.well-known/oauth-protected-resource{{ $path }}
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ include "netbox-mcp.fullname" . }}
+          port: {{ .Values.service.port }}
+          weight: 1
+    - matches:
+        - path:
+            type: Exact
+            value: {{ $path }}/.well-known/oauth-protected-resource
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /.well-known/oauth-protected-resource{{ $path }}
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ include "netbox-mcp.fullname" . }}
+          port: {{ .Values.service.port }}
+          weight: 1
+{{- end }}

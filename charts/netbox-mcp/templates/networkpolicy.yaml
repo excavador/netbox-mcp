@@ -1,0 +1,65 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- /*
+The pod admits the gateway on the proxy's port and nothing else (the kubelet's
+probes are not subject to a NetworkPolicy), and reaches DNS, HTTPS (the
+issuer's signing keys) and NetBox. extraEgress adds rules, verbatim.
+*/}}
+{{- $httpsPorts := uniq (list "443" (include "netbox-mcp.urlPort" .Values.auth.issuerUrl)) }}
+{{- $nb := .Values.networkPolicy.egress.netbox }}
+{{- $nbPorts := $nb.ports | default (list (include "netbox-mcp.urlPort" .Values.netbox.url | int)) }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "netbox-mcp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netbox-mcp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "netbox-mcp.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # The gateway, on the proxy's one MCP port.
+    - from:
+        {{- toYaml .Values.networkPolicy.ingressFrom | nindent 8 }}
+      ports:
+        - port: {{ .Values.service.port }}
+          protocol: TCP
+  egress:
+    # DNS. With no `networkPolicy.egress.dns` peers this is port 53 to ANY
+    # destination: the cluster resolver is not a kube-system pod on every
+    # cluster, and a rule naming one namespace blocks DNS where it is not.
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+      {{- with .Values.networkPolicy.egress.dns }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    # HTTPS: the issuer's signing keys.
+    - ports:
+        {{- range $p := $httpsPorts }}
+        - port: {{ int $p }}
+          protocol: TCP
+        {{- end }}
+      {{- with .Values.networkPolicy.egress.https }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    # NetBox, the server's one upstream.
+    - ports:
+        {{- range $p := $nbPorts }}
+        - port: {{ int $p }}
+          protocol: TCP
+        {{- end }}
+      {{- with $nb.to }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

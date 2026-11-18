@@ -18,6 +18,11 @@ spec:
       annotations: {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
+      # Never the ServiceAccount token: neither container talks to the
+      # Kubernetes API.
+      automountServiceAccountToken: false
+      # Pod Security Standard "restricted": non-root, a seccomp profile, no
+      # privilege escalation and no capabilities on every container.
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: netbox-mcp
@@ -35,8 +40,47 @@ spec:
             # stdio would exit immediately in a pod with no attached client.
             - name: TRANSPORT
               value: http
+            # MCP on loopback only, with no container port; the proxy is the
+            # only way in. The server refuses a non-loopback ADDR.
             - name: ADDR
-              value: "0.0.0.0:{{ .Values.service.port }}"
+              value: {{ include "netbox-mcp.mcpListen" . | quote }}
+            - name: OPS_ADDR
+              value: {{ printf "0.0.0.0:%s" (include "netbox-mcp.opsPort" .) | quote }}
+          ports:
+            - name: ops
+              containerPort: {{ include "netbox-mcp.opsPort" . }}
+              protocol: TCP
+          # /healthz is liveness only and does NOT call NetBox: a probe that
+          # fails when a dependency blips would take the pod out of service for
+          # something it cannot fix by restarting. The pod's READINESS is the
+          # proxy's below.
+          livenessProbe:
+            httpGet: {path: /healthz, port: ops}
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: {path: /healthz, port: ops}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+        # The resource-proxy: the pod's only MCP port. It checks the bearer
+        # token, serves the protected-resource metadata, writes the audit line
+        # and forwards to the server on loopback. No OUTBOUND_*: NetBox takes
+        # only its own API token, so nothing is exchanged.
+        - name: proxy
+          image: {{ include "netbox-mcp.proxyImage" . | quote }}
+          imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
+          securityContext:
+            runAsUser: {{ .Values.proxy.runAsUser }}
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: LISTEN
+              value: {{ printf ":%d" (int .Values.service.port) | quote }}
+            - name: UPSTREAM
+              value: {{ printf "http://%s/mcp" (include "netbox-mcp.mcpListen" .) | quote }}
             - name: ISSUER_URL
               value: {{ .Values.auth.issuerUrl | quote }}
             - name: RESOURCE_URL
@@ -47,18 +91,15 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          # /healthz is liveness only and does NOT call NetBox: a readiness
-          # probe that fails when a dependency blips would take the pod out
-          # of service for something it cannot fix by restarting.
+          # /healthz is the process; /readyz also needs the issuer's keys, so a
+          # pod that cannot verify tokens takes no traffic.
           livenessProbe:
             httpGet: {path: /healthz, port: http}
-            initialDelaySeconds: 5
             periodSeconds: 20
           readinessProbe:
-            httpGet: {path: /healthz, port: http}
-            initialDelaySeconds: 3
+            httpGet: {path: /readyz, port: http}
             periodSeconds: 10
-          resources: {{- toYaml .Values.resources | nindent 12 }}
+          resources: {{- toYaml .Values.proxy.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

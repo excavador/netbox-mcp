@@ -8,7 +8,8 @@
     "image",
     "netbox",
     "service",
-    "auth"
+    "auth",
+    "proxy"
   ],
   "properties": {
     "nameOverride": {
@@ -95,7 +96,8 @@
         "port": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "The resource-proxy's listen port; the Service targets it and no other port of the pod."
         }
       }
     },
@@ -110,16 +112,16 @@
         "issuerUrl": {
           "type": "string",
           "minLength": 1,
-          "description": "access-roster's own URL, exactly as it appears in a token's `iss`."
+          "description": "The issuer's own URL, exactly as it appears in a token's `iss`. Feeds the resource-proxy. https."
         },
         "resourceUrl": {
           "type": "string",
           "minLength": 1,
-          "description": "This server's own EXTERNAL URL: the RFC 8707 resource indicator a client names, and the audience access-roster mints for it. Must match this resource's id in access-roster's policy, byte for byte."
+          "description": "This server's own EXTERNAL URL: the RFC 8707 resource indicator a client names, and the `aud` the resource-proxy requires. Its path is where the proxy serves the server. Must equal this resource's id in the issuer's policy, byte for byte."
         },
         "scope": {
           "type": "string",
-          "description": "Advertised in the PRM's scopes_supported and the 401 challenge's scope; never checked by this server. Empty omits both fields rather than advertising an empty list."
+          "description": "Advertised in the PRM's scopes_supported and the 401 challenge's scope; never checked. Empty omits both fields rather than advertising an empty list."
         }
       }
     },
@@ -149,6 +151,126 @@
       "description": "Annotations on the Deployment itself. Reloader reads them here, not on the pod template.",
       "additionalProperties": {
         "type": "string"
+      }
+    },
+    "proxy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image"
+      ],
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "tag",
+            "digest"
+          ],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "REQUIRED, no default: the resource-proxy is built by another repository's release, so pin the one you have verified. No leading v."
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "description": "REQUIRED, no default: sha256:<64 hex>, the image index digest. Pinned with the tag so a moved tag cannot change what guards the server."
+            },
+            "pullPolicy": {
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            }
+          }
+        },
+        "runAsUser": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "ingressFrom": {
+          "type": "array",
+          "description": "NetworkPolicy peers admitted to the proxy's port, verbatim (a peer may combine a namespaceSelector and a podSelector). Required while enabled."
+        },
+        "egress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dns": {
+              "type": "array"
+            },
+            "https": {
+              "type": "array"
+            },
+            "netbox": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "to": {
+                  "type": "array"
+                },
+                "ports": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  }
+                }
+              }
+            }
+          }
+        },
+        "extraEgress": {
+          "type": "array"
+        }
+      }
+    },
+    "httpRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parentRefs": {
+          "type": "array"
+        },
+        "hostnames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "annotations": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        }
       }
     }
   }

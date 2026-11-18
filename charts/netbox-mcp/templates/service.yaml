@@ -5,6 +5,8 @@ metadata:
   labels: {{- include "netbox-mcp.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
+  # The proxy's port and no other: nothing else of the pod is reachable
+  # through the Service.
   ports:
     - name: http
       port: {{ .Values.service.port }}

@@ -9,10 +9,10 @@ type: application
 # Releases from this repo must be 1.x. excavador/netbox-mcp-chart publishes 0.x to
 # this same OCI path, packaging the upstream read-only Python server, and it is
 # kept as a fallback. Tagging a v0.x here would overwrite one of its charts.
-version: 1.1.0
+version: 1.3.0
 # Also set from the release tag by the workflow; this value is only what a
 # local `helm template` will use.
-appVersion: "1.1.0"
+appVersion: "1.3.0"
 home: https://github.com/excavador/netbox-mcp
 sources:
   - https://github.com/excavador/netbox-mcp

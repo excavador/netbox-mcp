@@ -27,7 +27,7 @@ claude mcp add netbox \
 | [Installation](docs/installation.md) | binary, container and Helm chart; every value and env var |
 | [Connecting a client](docs/clients.md) | Claude Code over stdio and HTTP; how to drive the tools |
 | [Architecture](docs/architecture.md) | the discovered registry, the safety boundary, why the tools are generic |
-| [CIMD auth design](docs/design/cimd-auth.md) | why and how the server validates bearer tokens against access-roster |
+| [CIMD auth design](docs/design/cimd-auth.md) | why and how callers are authenticated: by the resource-proxy sidecar, not by this server |
 | [Development](docs/development.md) | devbox, `just check`, testing, releasing |
 
 ## Generic tools, not one per model
@@ -77,16 +77,20 @@ Token …` — not `Bearer`, and never an OIDC token. The token's NetBox
 permissions are the real limit on what this server can do; a read-only token
 makes every write tool fail with a 403, which is a perfectly good way to run it.
 
-**The HTTP transport validates every request itself.** A bearer token minted
-by [access-roster](https://github.com/truvity/sluis), checked against
-its JWKS with this server's own resource URL as the required audience (RFC
-8707). `ISSUER_URL` and `RESOURCE_URL` are both required — there is no way to
-start the http transport, or render the chart, without them, and no gateway
-fallback. A client identifies itself the way the MCP authorization spec
-recommends now that dynamic registration is deprecated there: a Client ID
-Metadata Document, an HTTPS URL access-roster's policy allows. See
-[architecture](docs/architecture.md#the-server-validates-its-own-bearer-tokens)
-and [the design doc](docs/design/cimd-auth.md).
+**The HTTP transport authenticates nobody, by design.** In a cluster it runs
+behind the [sluis](https://github.com/truvity/sluis) `resource-proxy` sidecar in
+the same pod: the proxy checks the caller's access token (signature against the
+issuer's keys, `iss`, and `aud` equal to the server's own resource URL, RFC
+8707), serves the RFC 9728 Protected Resource Metadata, writes one audit line
+per request and forwards to this server on loopback. So the server listens on
+`127.0.0.1:8081` at `/mcp` only, and **refuses a non-loopback `--addr`** unless
+`--allow-non-loopback` is given: a stray `0.0.0.0` can never publish NetBox,
+writable, with no check in front of it. A second listener (`--ops-addr`,
+default `0.0.0.0:9090`) serves `/healthz` for the kubelet and nothing of MCP.
+The chart renders the sidecar, the Service (the proxy's port only), the
+NetworkPolicy and, optionally, the HTTPRoute. See
+[architecture](docs/architecture.md#the-sidecar-authenticates-the-caller) and
+[the design doc](docs/design/cimd-auth.md).
 
 ## Why this exists rather than the upstream server
 
