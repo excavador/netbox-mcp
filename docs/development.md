@@ -19,11 +19,12 @@ a repo whose main package has gone missing still passes the latter.
 ## Running it against a real NetBox
 
     just run   https://netbox.example.com <token>              # stdio
-    just serve https://netbox.example.com <token> 127.0.0.1:8080  # http
+    just serve https://netbox.example.com <token>                 # http, 127.0.0.1:8081
 
-`serve` binds loopback by default here, unlike the production default: this
-server authenticates nothing, so a development instance should not be on a
-network interface.
+The http transport authenticates nobody (the resource-proxy sidecar does that in
+a pod) and refuses a non-loopback `--addr`, so a development instance cannot
+end up on a network interface by accident. `/healthz` is on the ops listener,
+`0.0.0.0:9090` by default.
 
 ## Testing
 
@@ -49,14 +50,22 @@ diff, or a before-and-after count you measured both halves of.
 ## The chart
 
 `just chart` lints and renders it, then checks the things that should **fail**:
-a missing `netbox.url`, a URL ending in `/api`, and an unknown values key. A
-chart exercised only with correct values has not been tested — the schema and
-guards exist to reject input.
+a missing `netbox.url`, a URL ending in `/api`, an unknown values key, a missing
+issuer or resource URL, a proxy without a pinned tag and digest, an empty
+NetworkPolicy ingress. A chart exercised only with correct values has not been
+tested — the schema and guards exist to reject input.
+
+`charts/netbox-mcp/chart_test.go` holds the pod to the shape its security claim
+rests on (it renders the chart with helm and is skipped where helm is absent):
+the sidecar is the only container with an MCP port, the server is on loopback,
+the Service reaches the proxy's port alone, no ServiceAccount token is mounted,
+the NetworkPolicy admits the named peers on the proxy's port only, and the
+route's rules.
 
 ## Releasing
 
-    git tag -a v0.2.0 -F <message-file>
-    git push origin v0.2.0
+    git tag -a v1.3.0 -F <message-file>
+    git push origin v1.3.0
 
 The `Release` workflow builds and publishes the image via ko (no Dockerfile,
 multi-arch `amd64` + `arm64`) and the chart via helmctl.

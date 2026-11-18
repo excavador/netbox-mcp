@@ -20,11 +20,11 @@ directory.
 
 Claude Code follows the MCP authorization spec: it requests the endpoint,
 gets a `401` naming this server's own protected-resource metadata, follows
-that to discover access-roster as the authorization server, and opens a
+that to discover the issuer as the authorization server, and opens a
 browser for you to log in. It identifies itself with a Client ID Metadata
 Document it already serves at a fixed URL of its own
 (`https://claude.ai/oauth/claude-code-client-metadata`) — nothing to
-register, nothing to configure on the client side, provided access-roster's
+register, nothing to configure on the client side, provided the issuer's
 policy allow-lists `claude.ai` under `client_documents.origins` (see
 [design/cimd-auth.md](design/cimd-auth.md)).
 

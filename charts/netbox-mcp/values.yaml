@@ -17,27 +17,113 @@ netbox:
   existingSecretTokenKey: token
 
 # stdio is meaningless in a pod, so this chart only ever runs http.
+#
+# The pod has two containers:
+#
+#   netbox-mcp   serves MCP on 127.0.0.1:8081 and declares no container port
+#                for it. It holds no authentication code and refuses a
+#                non-loopback address. Its ops port (9090, /healthz) serves
+#                the kubelet's liveness probe and nothing of MCP.
+#   proxy        the sluis resource-proxy: the pod's only MCP port. It checks
+#                the caller's access token (signature against the issuer's
+#                keys, `iss`, and `aud` equal to auth.resourceUrl), serves the
+#                RFC 9728 protected-resource metadata, writes one audit line
+#                per request, strips the caller's Authorization header and
+#                forwards `<path of resourceUrl>` to the server's /mcp.
+#
+# Who may call is the issuer's policy for auth.resourceUrl, not anything here.
 service:
   type: ClusterIP
+  # The Service targets the proxy's port ONLY, so this is the proxy's listen
+  # port. Nothing else of the pod is reachable through the Service.
   port: 8080
 
-# The server validates every request itself against access-roster: no
-# secret to provide here, because a bearer token is never a literal and a
-# CIMD client never registers one. Both are required -- there is no
-# gateway fallback any more.
+# The access-token issuer and this resource's identity. Both feed the proxy;
+# the server itself needs neither.
 auth:
-  # access-roster's own URL, exactly as it appears in a token's `iss`.
+  # The issuer's own URL, exactly as it appears in a token's `iss`. https, no
+  # fragment. REQUIRED.
   issuerUrl: ""
-  # This server's own EXTERNAL URL (not its in-cluster Service address):
-  # the RFC 8707 resource indicator a client names, and the audience
-  # access-roster mints a token for. Must match, byte for byte, this
-  # resource's id in access-roster's own policy.
+  # This server's own EXTERNAL URL (not its in-cluster Service address): the
+  # RFC 8707 resource indicator a client names, the `aud` the proxy requires,
+  # and the path the proxy maps to the server's /mcp (so `.../netbox` serves
+  # the server at `.../netbox`). https, no trailing slash, no fragment, with a
+  # path. Must equal, byte for byte, this resource's id in the issuer's
+  # policy. REQUIRED.
   resourceUrl: ""
-  # Advertised in the PRM's scopes_supported and the 401 challenge's
-  # scope -- never checked by this server itself. access-roster refuses
-  # an authorize request with no scope at all; "openid" is the one it
-  # accepts by default. An estate needing more sets this, not the image.
+  # Advertised in the PRM's scopes_supported and the 401 challenge's scope --
+  # never checked. An issuer may refuse an authorize request with no scope at
+  # all; "openid" is the one it accepts by default.
   scope: openid
+
+# The resource-proxy sidecar (truvity/sluis, cmd/resource-proxy). It is built
+# by another repository's release, so this chart carries NO default version:
+# pin the release you have verified by tag AND digest. Both are REQUIRED.
+# The tag has no leading "v" (the release 1.84.0 is the tag `1.84.0`).
+proxy:
+  image:
+    repository: ghcr.io/truvity/sluis/resource-proxy
+    tag: ""
+    # sha256:<64 hex>, the image INDEX digest (multi-arch).
+    digest: ""
+    pullPolicy: IfNotPresent
+  # The numeric uid the image runs as. `runAsNonRoot` cannot verify a named
+  # user, so the uid is stated.
+  runAsUser: 65532
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 96Mi}
+
+# The pod admits ingress on the proxy's port from `ingressFrom` -- the gateway
+# that fronts the server (REQUIRED while enabled: an empty list would admit
+# nobody) -- and on nothing else; the kubelet's probes are not subject to it.
+# Egress is DNS, HTTPS (the issuer's signing keys) and the NetBox upstream.
+# `ingressFrom` takes NetworkPolicy peers verbatim, so one peer can combine a
+# namespaceSelector and a podSelector.
+#
+# DNS and HTTPS egress are OPEN BY DEFAULT (any destination): an issuer behind
+# a CDN or a cloud endpoint has no address a chart can know. Name the peers in
+# egress.dns and egress.https to close them.
+networkPolicy:
+  enabled: true
+  ingressFrom: []
+  egress:
+    # Optional peers for DNS (UDP and TCP 53). Empty: any destination.
+    dns: []
+    # Optional peers for HTTPS (tcp 443, and the port of auth.issuerUrl when it
+    # is not 443). Empty: any destination.
+    https: []
+    netbox:
+      # Optional peers for NetBox. Empty: any destination on `ports`.
+      to: []
+      # TCP ports to allow towards NetBox. Empty: the port of netbox.url.
+      # NOTE: a NetworkPolicy sees the pod behind a Service, not the Service:
+      # for an in-cluster NetBox reached as http://netbox.ns.svc (port 80), set
+      # the port its pods listen on.
+      ports: []
+  # Further egress rules, verbatim.
+  extraEgress: []
+
+# Optional: ONE gateway.networking.k8s.io/v1 HTTPRoute for the server, in the
+# release namespace, shipped with the Service on purpose (a route whose backend
+# arrives later reads BackendNotFound). The gateway rewrites nothing: the
+# proxy maps the resource path to the server's /mcp itself. Rules, with PATH the
+# path of auth.resourceUrl (say /netbox), all to the Service (the proxy's port):
+#   PathPrefix PATH
+#   Exact      /.well-known/oauth-protected-resource/PATH   (the PRM, RFC 9728)
+#   Exact      PATH/.well-known/oauth-protected-resource    (alias, rewritten to the PRM above)
+# No `timeouts` are set: the gateway's own default applies.
+httpRoute:
+  enabled: false
+  # Optional: the route's name; defaults to the fullname.
+  name: ""
+  # Required while enabled. Passed through as written: group, kind, name,
+  # namespace, sectionName (port too).
+  parentRefs: []
+  # Optional. When set, the host of auth.resourceUrl must be one of these.
+  hostnames: []
+  annotations: {}
+  labels: {}
 
 resources:
   requests: {cpu: 20m, memory: 64Mi}

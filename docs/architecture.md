@@ -9,12 +9,15 @@ call is one HTTP request, so the process can be restarted or scaled freely.
     Claude Code (or any MCP client)
       │  presents client_id = an HTTPS URL to its own Client ID Metadata
       │  Document (CIMD) -- no pre-registration, no DCR
-      │  gets back an access token: iss=access-roster, aud=this resource
+      │  gets back an access token: iss=the issuer, aud=this resource
       │  MCP over streamable HTTP, Authorization: Bearer <access token>
       ▼
-    netbox-mcp  (TRANSPORT=http, listening on :8080/mcp)
-      │  validates the token itself: signature against access-roster's
-      │  JWKS, iss, and aud == RESOURCE_URL (RFC 8707) -- by access-roster's identity/resource
+    resource-proxy  (sluis sidecar, the pod's only MCP port, :8080)
+      │  validates the token: signature against the issuer's JWKS, iss, and
+      │  aud == RESOURCE_URL (RFC 8707); serves the PRM; writes the audit line;
+      │  strips Authorization; maps /<resource path> to /mcp
+      ▼
+    netbox-mcp  (TRANSPORT=http, 127.0.0.1:8081/mcp; ops :9090/healthz)
       │  Authorization: Token <NetBox API token>
       ▼
     NetBox  /api/...
@@ -23,31 +26,38 @@ Two different credentials, and conflating them is the mistake this design
 exists to prevent:
 
 - The **caller's** token is an access-roster access token identifying a
-  person, bound to this server's own resource URL as its audience.
-  `netbox-mcp` verifies it itself, in-process — see
+  person, bound to this server's own resource URL as its audience. The
+  resource-proxy sidecar verifies it and never forwards it — see
   [design/cimd-auth.md](design/cimd-auth.md) for why authentication moved
-  from a perimeter gateway into the binary.
+  out of the binary, into the sidecar.
 - The **server's** token is a NetBox API token, held in a Kubernetes Secret and
   read once at startup. NetBox accepts nothing else — note the scheme is
   `Token`, not `Bearer`.
 
-### The server validates its own bearer tokens
+### The sidecar authenticates the caller
 
-`ISSUER_URL` and `RESOURCE_URL` are both required for the http transport --
-there is no gateway fallback. The server verifies a request's bearer token
-against access-roster's own JWKS, requires `aud` to equal `RESOURCE_URL`
-exactly (RFC 8707), and serves its own OAuth 2.0 Protected Resource Metadata
-at the RFC 9728 well-known path for `RESOURCE_URL`
-(`/.well-known/oauth-protected-resource` plus the resource's own path) so a
-compliant client can discover access-roster without being told out of band.
-All of this comes from the shared access-roster library
-`github.com/truvity/sluis/identity/resource`; if the issuer cannot be
-reached the server answers `503`, not `401`. See
-[design/cimd-auth.md](design/cimd-auth.md).
+The server holds **no authentication code** and imports nothing from sluis.
+The resource-proxy sidecar (`ghcr.io/truvity/sluis/resource-proxy`) is
+configured with `ISSUER_URL` and `RESOURCE_URL`, verifies a request's bearer
+token against the issuer's JWKS, requires `aud` to equal `RESOURCE_URL`
+exactly (RFC 8707), and serves the OAuth 2.0 Protected Resource Metadata at the
+RFC 9728 well-known path for `RESOURCE_URL`, so a compliant client can
+discover the issuer without being told out of band. If the issuer cannot be
+reached it answers `503`, not `401`. It forwards no caller identity and no
+token: NetBox only ever sees the server's own API token.
 
-Exposed with no `ISSUER_URL`/`RESOURCE_URL` set, the process refuses to
-start the http transport at all -- there is no way to accidentally run it
-unauthenticated.
+What keeps NetBox from being reachable around the sidecar:
+
+- **Loopback.** The server listens on `127.0.0.1:8081` and the pod declares no
+  container port for it. It refuses to start on any other `--addr` (an empty
+  host, `0.0.0.0`, a pod IP or a name) unless `--allow-non-loopback` is set,
+  so a wrong values file fails at start instead of publishing NetBox.
+- **One Service port.** The Service targets the proxy's port and no other.
+- **NetworkPolicy.** The chart admits only the gateway's peers, on the proxy's
+  port; the ops port is not in it, and the kubelet's probes are not subject to it.
+
+`--ops-addr` (default `0.0.0.0:9090`) serves `/healthz` and nothing of the MCP
+surface, for the kubelet. The pod's readiness is the proxy's `/readyz`.
 
 ### The NetBox token is the real limit
 

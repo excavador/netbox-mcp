@@ -11,6 +11,37 @@ from a diff. It is intentionally the same design as
 [excavador/homebox-mcp](https://github.com/excavador/homebox-mcp)'s
 `docs/design/cimd-auth.md` — the two servers share the shape on purpose.
 
+## Where the check runs now: the resource-proxy sidecar (1.3)
+
+Everything below describes the contract: what a token must satisfy, the policy
+shape, the scope. That contract is unchanged. **What changed in 1.3 is where
+it is enforced.** The server no longer imports `identity/resource` or holds any
+authentication code; the sluis `resource-proxy` runs beside it in the same pod
+([sluis docs](https://github.com/truvity/sluis/blob/master/docs/guides/sluis/connect/mcp-resource-proxy.md))
+and does the same checks, with the same `ISSUER_URL`, `RESOURCE_URL` and `SCOPE`:
+
+- verifies the bearer token (signature, `iss`, `aud` equal to `RESOURCE_URL`);
+- serves the Protected Resource Metadata and the 401 challenge;
+- strips the caller's `Authorization` header and maps the resource path
+  (`/netbox`) to the server's `/mcp`;
+- writes one `mcp_request` audit line per request to its own stdout.
+
+Why: one implementation of the check for every MCP server of an estate, in one
+place that is updated by a version pin, instead of a library linked into each
+server (and drifting between them). A server that compares nothing cannot
+compare it wrongly.
+
+The price is that the server is now open to whoever can reach its port, so it
+makes itself unreachable: it listens on `127.0.0.1` only, **refuses a
+non-loopback `--addr`** (fail closed; `--allow-non-loopback` is the documented
+override), declares no container port for MCP, and the Service and the
+NetworkPolicy name the proxy's port alone. A separate ops listener serves
+`/healthz` for the kubelet and nothing of MCP.
+
+Not provided: the caller's identity does not reach the server (the audit line
+in the proxy holds it), and there is no outbound token exchange, because NetBox
+accepts only its own API token, which the server keeps.
+
 ## What CIMD is, and why it fits an MCP server
 
 A **Client ID Metadata Document (CIMD)** is the MCP authorization spec's
@@ -52,11 +83,12 @@ to allow-list for that client.
 **Added:**
 
 - Auth from access-roster's shared Go library,
-  `github.com/truvity/sluis/identity/resource`: it wraps the MCP
-  handler with a bearer-token check against access-roster and serves this
+  `github.com/truvity/sluis/identity/resource`: it wrapped the MCP
+  handler with a bearer-token check against access-roster and served this
   server's own RFC 9728 Protected Resource Metadata at the well-known path
   for the resource URL. (This was first a local `internal/server/auth.go`;
-  that copy was identical in every MCP server and now lives in the library.)
+  that copy was identical in every MCP server and then lived in the library.
+  As of 1.3 the same check runs in the sidecar, above.)
 - Two new required settings for the http transport: `ISSUER_URL`
   (access-roster's own URL) and `RESOURCE_URL` (this server's own
   external URL — the RFC 8707 resource indicator / JWT audience). Both
@@ -117,10 +149,8 @@ accepts) in both places:
 - the 401 challenge, next to `resource_metadata`:
   `Bearer resource_metadata="...", scope="openid"`.
 
-It is `Scope` in the library's `resource.Config` and a `--scope` /
-`SCOPE` flag (`cmd/netbox-mcp/main.go`), mirroring how `ISSUER_URL` and
-`RESOURCE_URL` are wired, and a chart value, `auth.scope` (also default
-`openid`) — so an estate that needs a richer scope than `openid` sets it
+It is the proxy's `SCOPE` setting, fed by a chart value, `auth.scope` (also
+default `openid`) — so an estate that needs a richer scope than `openid` sets it
 without a new release. Kept estate-neutral on purpose: this repo is
 public and carries no estate's own policy.
 
